@@ -7,14 +7,20 @@ const CATS = {
   stay:   {label:'숙박',     icon:'🛏️', src:[['c','AD5']]},
   rental: {label:'렌트카',   icon:'🚗', src:[['k','렌터카']]},
   taxi:   {label:'택시',     icon:'🚕', src:[['k','택시']]},
-  subway: {label:'지하철·역', icon:'🚇', src:[['c','SW8'],['k','지하철 출구']]},
+  subway: {label:'역·터미널', icon:'🚉', src:[['c','SW8'],['k','기차역'],['k','버스터미널'],['k','지하철 출구']]},
   sight:  {label:'랜드마크', icon:'🏛️', src:[['c','AT4'],['c','CT1']]},
 };
 const PAGES = 2; // 검색 1회당 최대 15건 × 2페이지
 
 const $ = id => document.getElementById(id);
-const state = {pos:null, items:[], active:new Set(Object.keys(CATS)), radius:2000, n:0, overlays:[], me:null, iw:null};
-let map, ps, geo;
+const state = {pos:null, items:[], active:new Set(Object.keys(CATS)), radius:2000, n:0, markers:[], me:null, iw:null};
+let map, ps, geo, clusterer;
+const pinImg={};
+function pinImage(cat){ // 이모지 핀을 SVG 이미지로 (클러스터러는 Marker만 지원)
+  return pinImg[cat]||(pinImg[cat]=new kakao.maps.MarkerImage('data:image/svg+xml,'+encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30'><circle cx='15' cy='15' r='14' fill='white' stroke='#0f766e' stroke-width='2'/><text x='15' y='21' font-size='17' text-anchor='middle'>${CATS[cat].icon}</text></svg>`),
+    new kakao.maps.Size(30,30),{offset:new kakao.maps.Point(15,15)}));
+}
 
 // ---------- 유틸 ----------
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -31,7 +37,7 @@ function loadKakao(){
   return new Promise((ok,fail)=>{
     if(!window.KAKAO_JS_KEY)return fail(new Error('NO_KEY'));
     const s=document.createElement('script');
-    s.src=`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(KAKAO_JS_KEY)}&libraries=services&autoload=false`;
+    s.src=`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(KAKAO_JS_KEY)}&libraries=services,clusterer&autoload=false`;
     s.onload=()=>kakao.maps.load(ok);
     s.onerror=()=>fail(new Error('SDK_LOAD'));
     document.head.appendChild(s);
@@ -67,7 +73,7 @@ function renderChips(){
 }
 function showInfo(it){
   if(state.iw)state.iw.close();
-  state.iw=new kakao.maps.InfoWindow({position:new kakao.maps.LatLng(it.lat,it.lon),yAnchor:1.6,
+  state.iw=new kakao.maps.InfoWindow({position:new kakao.maps.LatLng(it.lat,it.lon),yAnchor:1.9,
     content:`<div class="iw"><b>${esc(it.name)}</b><br>${CATS[it.cat].label} · ${fmt(it.d)} ${it.dir}</div>`});
   state.iw.open(map);
 }
@@ -85,12 +91,13 @@ function renderAll(){
       <div class="sub">${c.label}${i.sub?' · '+esc(i.sub):''}</div></div>
       <div class="dist">${fmt(i.d)} ${i.dir}<br><span class="sub">${walk(i.d)}</span><br><a href="${nav}" target="_blank" rel="noopener">길찾기</a></div></li>`;
   }).join(''):'<div class="empty">이 반경에는 결과가 없어요. 반경을 넓혀 보세요.</div>';
-  state.overlays.forEach(o=>o.setMap(null));
-  state.overlays=ordered.map(i=>{
-    const el=document.createElement('div');el.className='pin kpin';el.textContent=CATS[i.cat].icon;
-    el.onclick=()=>showInfo(i);
-    return new kakao.maps.CustomOverlay({map,position:new kakao.maps.LatLng(i.lat,i.lon),content:el,yAnchor:0.5});
+  clusterer.clear();
+  state.markers=ordered.map(i=>{
+    const m=new kakao.maps.Marker({position:new kakao.maps.LatLng(i.lat,i.lon),image:pinImage(i.cat),title:i.name});
+    kakao.maps.event.addListener(m,'click',()=>showInfo(i));
+    return m;
   });
+  clusterer.addMarkers(state.markers);
 }
 function fitRadius(lat,lon,r){
   r=Math.min(r,2500);const dl=r/111000,dn=r/(111000*Math.cos(lat*Math.PI/180));
@@ -177,6 +184,9 @@ function setup(msg){
       `카카오 SDK를 불러오지 못했어요.<br>이 화면의 주소(도메인): <b>${esc(location.origin)}</b><br>사용 중인 키: <b>${esc(String(window.KAKAO_JS_KEY).slice(0,4))}…${esc(String(window.KAKAO_JS_KEY).slice(-4))}</b> (길이 ${String(window.KAKAO_JS_KEY).length}자, 32자여야 함)<br>→ 위 도메인이 카카오 Web 플랫폼/JavaScript SDK 도메인에 <b>똑같이</b> 등록돼 있어야 해요.<br>`);
   }
   map=new kakao.maps.Map($('map'),{center:new kakao.maps.LatLng(37.5665,126.978),level:4});
+  // 가까이 있는 핀은 숫자로 묶고, 확대(레벨 3 이하)하면 개별 핀으로 풀림
+  const cs=(w)=>({width:w+'px',height:w+'px',background:'#0f766ecc',color:'#fff',textAlign:'center',lineHeight:w+'px',borderRadius:'50%',fontWeight:'700',border:'2px solid #fff'});
+  clusterer=new kakao.maps.MarkerClusterer({map,averageCenter:true,minLevel:4,minClusterSize:3,calculator:[10,30,60],styles:[cs(38),cs(46),cs(54),cs(62)]});
   ps=new kakao.maps.services.Places();geo=new kakao.maps.services.Geocoder();
   bind();
   locate(); // 앱을 켜면 자동으로 현재 위치 기준 검색
