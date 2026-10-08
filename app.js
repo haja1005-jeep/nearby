@@ -173,7 +173,8 @@ function setup(msg){
 (async()=>{
   renderChips();
   try{await loadKakao()}catch(e){
-    return setup(e.message==='NO_KEY'?'카카오 JavaScript 키가 아직 없어요.':'카카오 SDK를 불러오지 못했어요. 키/도메인 등록을 확인하세요.');
+    return setup(e.message==='NO_KEY'?'카카오 JavaScript 키가 아직 없어요.':
+      `카카오 SDK를 불러오지 못했어요.<br>이 화면의 주소(도메인): <b>${esc(location.origin)}</b><br>사용 중인 키: <b>${esc(String(window.KAKAO_JS_KEY).slice(0,4))}…${esc(String(window.KAKAO_JS_KEY).slice(-4))}</b> (길이 ${String(window.KAKAO_JS_KEY).length}자, 32자여야 함)<br>→ 위 도메인이 카카오 Web 플랫폼/JavaScript SDK 도메인에 <b>똑같이</b> 등록돼 있어야 해요.<br>`);
   }
   map=new kakao.maps.Map($('map'),{center:new kakao.maps.LatLng(37.5665,126.978),level:4});
   ps=new kakao.maps.services.Places();geo=new kakao.maps.services.Geocoder();
